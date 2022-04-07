@@ -1,0 +1,6 @@
+spec:
+  template:
+    spec:
+      hostIPC: false
+      hostNetwork: false
+      hostPID: false

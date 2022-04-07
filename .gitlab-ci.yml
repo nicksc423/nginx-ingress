@@ -1,0 +1,45 @@
+stages:
+    - deploy
+
+.deploy-base:
+  stage: deploy
+  script:
+    # Load env vars (see example.vars)
+    - source $ENV_VARS
+    - helm repo add stable https://charts.helm.sh/stable
+    - helm repo update
+    # Install nginx ingress with some parameters specified in yaml. This provides nginx-ingress with the load balancer's IP
+    # address. The load balancer is configured by Kubernetes and the Azure provider and the IP address is associated. It's
+    # also configured to use the SSL cert we just provisioned by default, unless apps request their own.
+    #
+    # This SSL cert also applies by default to everything outside of a deployed app, like nginx-ingress's built-in 404 page.
+    # In this file, the omitClusterIP parameter is required to work around a bug in the Helm chart that prevents upgrades
+    # from merging correctly. See: https://github.com/helm/charts/issues/9227
+    - kubectl create namespace nginx-ingress || true
+    - kubectl label namespace nginx-ingress name=nginx-ingress || true
+    - envsubst < nginx-ingress-values.yaml > values.yaml && helm upgrade -i main-ingress stable/nginx-ingress --namespace nginx-ingress --atomic --timeout 10m --version "1.41.3" -f values.yaml
+    # Patch some container capabilities out since they cannot be changed via helm
+    - kubectl -n nginx-ingress patch daemonset main-ingress-nginx-ingress-controller --patch "$(cat nginx-ingress-patch.yaml)"
+    - kubectl -n nginx-ingress patch deployment main-ingress-nginx-ingress-default-backend --patch "$(cat nginx-ingress-patch.yaml)"
+  when: manual
+
+Deploy Dev:
+  extends: .deploy-base
+  tags:
+    - shell
+  environment:
+    name: development
+
+Deploy Staging:
+  extends: .deploy-base
+  tags:
+    - shell
+  environment:
+    name: staging
+
+Deploy Prod:
+  extends: .deploy-base
+  tags:
+    - shell
+  environment:
+    name: prod

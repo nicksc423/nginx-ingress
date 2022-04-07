@@ -1,0 +1,69 @@
+controller:
+    kind: DaemonSet
+    componentLabelKeyOverride: app.kubernetes.io/component
+    allowSnippetAnnotations: false
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/bin/sh", "-c", "sleep 5; /usr/local/nginx/sbin -c /etc/nginx/nginx.conf -s quit; while pgrep nginx-ingress; do sleep 1; done"]
+    service:
+        omitClusterIP: true
+        externalTrafficPolicy: Local
+        loadBalancerIP: $INGRESS_IP
+        annotations:
+            # This is actually be the public_ips resource group, ignore the bad naming from Azure
+            service.beta.kubernetes.io/azure-load-balancer-resource-group: $AZURE_RESOURCE_GROUP
+    affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - nginx-ingress
+                - key: app.kubernetes.io/component
+                  operator: In
+                  values:
+                  - controller
+              topologyKey: "kubernetes.io/hostname"
+    extraArgs:
+        default-ssl-certificate: "cert-manager/default-wildcard-tls"
+    extraContainers:
+      - name: jaeger-agent
+        image: jaegertracing/jaeger-agent:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 5775
+            name: zk-compact-trft
+            protocol: UDP
+          - containerPort: 5778
+            name: config-rest
+            protocol: TCP
+          - containerPort: 6831
+            name: jg-compact-trft
+            protocol: UDP
+          - containerPort: 6832
+            name: jg-binary-trft
+            protocol: UDP
+          - containerPort: 14271
+            name: admin-http
+            protocol: TCP
+        args:
+          - --reporter.grpc.host-port=dns:///jaeger-collector-headless.observability:14250
+          - --reporter.type=grpc
+    metrics:
+        enabled: true
+    podAnnotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: 10254
+    config:
+      enable-opentracing: "true"
+      jaeger-collector-host: localhost
+defaultBackend:
+    service:
+        omitClusterIP: true
+rbac:
+    create: true
